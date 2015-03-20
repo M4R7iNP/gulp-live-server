@@ -14,149 +14,153 @@ var util = require('util'),
     chalk = require('chalk'),
     debug = require('debug')('gulp-live-server');
 
-var config = {},
-    server = undefined, // the server child process
-    lr = undefined, // tiny-lr server
-    info = chalk.gray,
-    error = chalk.bold.red;
+var lr = undefined; // tiny-lr server
+function noop(str) { return str; };
 
-
-var callback = {
-    processExit: function (code, sig) {
-        debug(info('Main process exited with [code => %s | sig => %s]'), code, sig);
-        server && server.kill();
+var defaults = {
+    options: {
+        cwd: undefined,
     },
-
-    serverExit: function (code, sig) {
-        debug(info('server process exited with [code => %s | sig => %s]'), code, sig);
-        if(sig !== 'SIGKILL'){
-            //server stopped unexpectedly
-            process.exit(0);
-        }
-    },
-
-    lrServerReady: function () {
-        console.log(info('livereload[tiny-lr] listening on %s ...'), config.livereload.port);
-    },
-
-    serverLog: function (data) {
-        console.log(info(data.trim()));
-    },
-
-    serverError: function (data) {
-        console.log(error(data.trim()));
+    livereload: {
+        port: 35729
     }
 };
+
+defaults.options.env = process.env;
+defaults.options.env.server_ENV = 'development';
 
 /**
  * set config data for the new server child process
  * @type {Function}
  */
-module.exports = exports = (function() {
-    var defaults = {
-        options: {
-            cwd: undefined
-        },
-        livereload: {
-            port: 35729
-        }
-    };
-    defaults.options.env = process.env;
-    defaults.options.env.server_ENV = 'development';
+var Gls = function(args, options, livereload){
+    this.config = {};
+    this.config.args = args;
 
-    return function(args, options, livereload){
-        config.args = args;
-        //deal with options
-        config.options = merge(defaults.options, options || {});
-        //deal with livereload
-        if (livereload) {
-            config.livereload = (typeof livereload === 'object' ? livereload : {port: livereload});
-        }else{
-            config.livereload = (livereload === false ? false : defaults.livereload);
-        }
-        return exports;
-    };
-})();
+    //deal with options
+    this.config.options = merge(defaults.options, options || {});
 
-/**
-* default server script, the static server
-*/
-exports.script = path.join(__dirname, 'scripts/static.js');
+    //deal with livereload
+    if (livereload)
+        this.config.livereload = (typeof livereload === 'object' ? livereload : {port: livereload});
+    else
+        this.config.livereload = (livereload === false ? false : defaults.livereload);
 
-/**
-* create a server child process with the script file
-*/
-exports.new = function (script) {
-    if(!script){
-        return console.log(error('script file not specified.'));
-    }
-    return this([script]);
+    this.info = this.config.options.noColor !== true ? chalk.gray : noop;
+    this.error = this.config.options.noColor !== true ? chalk.bold.red : noop;
+    this.debug = debug;
+
+	//TODO: this is a quick fix
+	//gulp.watch([<files>], server.notify) - notify's this is undefined
+	this.notify = this.notify.bind(this);
+	this.start = this.start.bind(this);
+	this.stop = this.stop.bind(this);
+};
+
+module.exports = Gls;
+
+Gls.prototype.processExit = function (code, sig) {
+    this.debug(this.info('Main process exited with [code => %s | sig => %s]'), code, sig);
+    this.server && this.server.kill();
+};
+
+Gls.prototype.serverExit = function (code, sig) {
+    this.debug(this.info('server process exited with [code => %s | sig => %s]'), code, sig);
+    if (sig !== 'SIGKILL')
+        process.exit(0);
+};
+
+Gls.prototype.lrServerReady = function () {
+    console.log(this.info('livereload[tiny-lr] listening on %s ...'), this.config.livereload.port);
+};
+
+Gls.prototype.serverLog = function (data) {
+    console.log(this.info(data.trim()));
+};
+
+Gls.prototype.serverError = function (data) {
+    console.log(this.error(data.trim()));
 };
 
 /**
-* create a server child process with the static server script
-*/
-exports.static = function (folder, port) {
-    var script = this.script;
+ * default server script, the static server
+ */
+var staticScriptPath = path.join(__dirname, 'scripts/static.js');
+
+/**
+ * create a server child process with the script file
+ */
+Gls.new = function (script) {
+    if(!script){
+        return console.log(this.error('script file not specified.'));
+    }
+    return new Gls([script]);
+};
+
+/**
+ * create a server child process with the static server script
+ */
+Gls.static = function (folder, port) {
     folder = folder || process.cwd();
     console.log(folder, util.isArray(folder));
     util.isArray(folder) && (folder = folder.join(','));
     port = port || 3000;
-    return this([script, folder, port]);
+    return new Gls([staticScriptPath, folder, port]);
 };
 
 /**
-* start/restart the server
-*/
-exports.start = function () {
-    if (server) { // server already running
-        debug(info('kill server'));
-        server.kill('SIGKILL');
+ * start/restart the server
+ */
+Gls.prototype.start = function () {
+    var self = this;
+    if (this.server) { // server already running
+        this.debug(this.info('kill server'));
+        this.server.kill('SIGKILL');
         //server.removeListener('exit', callback.serverExit);
-        server = undefined;
+        this.server = undefined;
     } else {
-        if(config.livereload){
-            lr = tinylr(config.livereload);
-            lr.listen(config.livereload.port, callback.lrServerReady);
+        if(this.config.livereload){
+            lr = tinylr(this.config.livereload);
+            lr.listen(this.config.livereload.port, this.lrServerReady);
         }
     }
-    server = spawn('node', config.args, config.options);
-    server.stdout.setEncoding('utf8');
-    server.stderr.setEncoding('utf8');
+    this.server = spawn('node', this.config.args, this.config.options);
+    this.server.stdout.setEncoding('utf8');
+    this.server.stderr.setEncoding('utf8');
 
-    server.stdout.on('data', function(code, sig){
-        callback.serverLog(code, sig);
+    this.server.stdout.on('data', function(code, sig){
+        self.serverLog(code, sig);
         deferred.resolve(code);
     });
-    server.stderr.on('data', callback.serverError);
-    server.once('exit', callback.serverExit);
+    this.server.stderr.on('data', this.serverError.bind(this));
+    this.server.once('exit', this.serverExit.bind(this));
 
-    process.listeners('exit') || process.once('exit', callback.processExit);
+    process.listeners('exit') || process.once('exit', this.processExit.bind(this));
 
     var deferred = Q.defer();
     return deferred.promise;
 };
 
 /**
-* stop the server
-*/
-exports.stop = function () {
+ * stop the server
+ */
+Gls.prototype.stop = function () {
     var deferred = Q.defer();
-    if (server) {
-        server.once('exit', function (code) {
+    if (this.server) {
+        this.server.once('exit', function (code) {
             deferred.resolve(code);
         });
 
-        debug(info('kill server'));
+        this.debug(this.info('kill server'));
         //use SIGHUP instead of SIGKILL, see issue #34
-        server.kill('SIGKILL');
+        this.server.kill('SIGKILL');
         //server.removeListener('exit', callback.serverExit);
-        server = undefined;
+        this.server = undefined;
     }else{
         deferred.resolve(0);
     }
     if(lr){
-        debug(info('close livereload server'));
+        this.debug(this.info('close livereload server'));
         lr.close();
         //TODO how to stop tiny-lr from hanging the terminal
         lr = undefined;
@@ -166,18 +170,23 @@ exports.stop = function () {
 };
 
 /**
-* tell livereload.js to reload the changed resource(s)
-*/
-exports.notify = function (event) {
+ * tell livereload.js to reload the changed resource(s)
+ */
+Gls.prototype.notify = function (event) {
+	var self = this;
+
+	if (this.config.livereload === false)
+		return;
+
     if(event && event.path){
         var filepath = path.relative(__dirname, event.path);
-        debug(info('file(s) changed: %s'), event.path);
+        this.debug(this.info('file(s) changed: %s'), event.path);
         lr.changed({body: {files: [filepath]}});
     }
 
     return es.map(function(file, done) {
         var filepath = path.relative(__dirname, file.path);
-        debug(info('file(s) changed: %s'), filepath);
+        self.debug(self.info('file(s) changed: %s'), filepath);
         lr.changed({body: {files: [filepath]}});
         done(null, file);
     });

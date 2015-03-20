@@ -10,4 +10,5 @@ var server = app.listen(3000, function () {
     var port = server.address().port;
 
     console.log('custom server listening at http://%s:%s', host, port);
+	console.error('Missing operating system');
 });
