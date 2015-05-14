@@ -122,7 +122,7 @@ Gls.prototype.start = function () {
             lr.listen(this.config.livereload.port, this.lrServerReady);
         }
     }
-    this.server = spawn(process.execPath, config.args, config.options);
+    this.server = spawn(process.execPath, this.config.args, this.config.options);
     this.server.stdout.setEncoding('utf8');
     this.server.stderr.setEncoding('utf8');
 
