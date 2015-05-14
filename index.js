@@ -66,8 +66,6 @@ Gls.prototype.processExit = function (code, sig) {
 
 Gls.prototype.serverExit = function (code, sig) {
     this.debug(this.info('server process exited with [code => %s | sig => %s]'), code, sig);
-    if (sig !== 'SIGKILL')
-        process.exit(0);
 };
 
 Gls.prototype.lrServerReady = function () {
